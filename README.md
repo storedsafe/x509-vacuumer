@@ -35,7 +35,7 @@ sudo -H pip install netaddr
 
 ```
 $ argus --help
-argus.py [--verbose] <-c|--cidr <CIDR>> <-h|--host <host>> <-p|--port <port>> <-s|--storedsafe <host>> <-u|--user <user>> <-a|--apikey <APIKEY>> [-v|--vault <Vaultname>] [--vaultid <Vault-ID>][--import-expired] [--allow-duplicates]
+argus.py [--verbose] <-c|--cidr <CIDR>> <-h|--host <host>> <-p|--port <port>> <-s|--storedsafe <host>> <-u|--user <user>> <-a|--apikey <APIKEY>> [-v|--vault <Vaultname>] [--vaultid <Vault-ID>] [--import-expired] [--allow-duplicates] [--create-vault] [--unique-vault]
 ```
 
 ```
@@ -158,7 +158,11 @@ Found 5 duplicate certificate/s.
 ```
 
 ## Limitations / Known issues
-None known.
+```
+--create-vault
+--unique-vault
+```
+> Is not yet implemented.
 
 ## License
 GPL
