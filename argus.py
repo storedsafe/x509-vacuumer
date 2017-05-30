@@ -54,13 +54,13 @@ def main():
   except getopt.GetoptError as err:
     print("%s" % str(err))
     usage()
-    sys.exit(1)
+    sys.exit()
 
   if opts:
     pass
   else:
     usage()
-    sys.exit(2)
+    sys.exit()
 
   for opt, arg in opts:
     if opt in ("--verbose"):
@@ -119,16 +119,16 @@ def main():
   if hosts:
     cidr = addHosts(cidr, hosts)
 
-  if not cidr and not tcp_port and not storedsafe:
+  if not cidr or not tcp_port or not storedsafe:
     print("ERROR: StoredSafe Server address (--storedsafe), Targets (--cidr) and what port (--port) to scan is mandatory arguments.")
-    sys.exit(3)
+    sys.exit()
 
   url = "https://" + storedsafe + "/api/1.0"
 
   if not supplied_token:
-    if not user and not apikey:
+    if not user or not apikey:
       print("ERROR: StoredSafe User (--user) and a StoredSafe API key (--apikey) or a valid StoredSafe Token (--token) is mandatory arguments.")
-      sys.exit(3)
+      sys.exit()
     else:
       pp = passphrase(user)
       otp = OTP(user)
@@ -144,7 +144,7 @@ def main():
   if vaultid:
     vaultname = findVaultName(vaultid)
   else:
-    if not create_vault and not unique_vault:
+    if not create_vault or not unique_vault:
       print("ERROR: One of \"--vault\", \"--vaultid\", \"--create-vault\" or \"--unique-vault\" is mandatory.")
       sys.exit()
 
@@ -175,13 +175,17 @@ def OTP(user):
 def login(user, key):
   global url
   payload = { 'username': user, 'keys': key }
-  r = requests.post(url + '/auth', data=json.dumps(payload))
+  try:
+    r = requests.post(url + '/auth', data=json.dumps(payload))
+  except:
+    print("ERROR: No connection.");
+    sys.exit()
   data = json.loads(r.content)
   if r.ok:
     return data["CALLINFO"]["token"]
   else:
     print("ERROR: %s" % data["ERRORS"][0])
-    sys.exit(6)
+    sys.exit()
 
 def findVaultID(vaultname):
   global token, url, verbose
@@ -360,7 +364,7 @@ def uploadCert(candidates, vaultid):
       r = requests.post(url + '/object', data=multipart_data, headers={'Content-Type': multipart_data.content_type})
       if not r.ok:
         print("ERROR: Could not save certificate for \"%s\"" % x509.get_subject().CN)
-        sys.exit(5)
+        sys.exit()
 
       imported += 1
     else:
