@@ -14,6 +14,8 @@ import datetime
 import getopt
 import socket
 import getpass
+import os.path
+import re
 import requests
 from requests_toolbelt.multipart.encoder import MultipartEncoder
 from netaddr import *
@@ -31,26 +33,28 @@ __status__     = "Production"
 url              = False
 token            = False
 verbose          = False
+debug            = False
 import_expired   = False
 create_vault     = False
-unique_vault     = False
 allow_duplicates = False
+timeout          = 2
 
 """
-  # FIXME: Skapa valv per nytt cert
-  # FIXME: Skapa valv om det inte finns
+  FIXME: Skapa valv om det inte finns
 """
 
 def main():
-  timeout = 2
   hosts = []
   cidr = []
   tcp_port = [ '443']
-  user = apikey = vaultid = vaultname = supplied_token = False
-  global token, url, verbose, import_expired, create_vault, unique_vault, allow_duplicates
+  user = apikey = vaultid = vaultname = supplied_token = rc_file = False
+  global token, url, verbose, debug, import_expired, create_vault, allow_duplicates, timeout
 
   try:
-   opts, args = getopt.getopt(sys.argv[1:], "c:p:s:u:a:v:t:h:", ["verbose","cidr=","port=","storedsafe=","token=","user=","apikey=","vault=","vaultid=","import-expired","create-vault","unique-vault","timeout=","host=","allow-duplicates"] )
+   opts, args = getopt.getopt(sys.argv[1:], "c:p:s:u:a:v:t:h:",\
+    [ "verbose", "cidr=", "port=", "storedsafe=", "token=", "user=", "apikey=", "vault=",\
+    "vaultid=", "host=", "rc=", "timeout=", "import-expired", "create-vault",\
+    "allow-duplicates", "debug" ])
   except getopt.GetoptError as err:
     print("%s" % str(err))
     usage()
@@ -65,6 +69,8 @@ def main():
   for opt, arg in opts:
     if opt in ("--verbose"):
       verbose = True
+    elif opt in ("--debug"):
+      debug = True
     elif opt in ("-c", "--cidr"):
       try:
         cidr.append(IPNetwork(arg)) # Append to existing list
@@ -95,6 +101,8 @@ def main():
       else:
         print("Invalid token.")
         sys.exit()
+    elif opt in ("--rc"):
+      rc_file = arg
     elif opt in ("-v", "--vault"):
       vaultname = arg
     elif opt in ("--vaultid"):
@@ -103,8 +111,6 @@ def main():
       import_expired = True
     elif opt in ("--create-vault"):
       create_vault = True
-    elif opt in ("--unique-vault"):
-      unique_vault = True
     elif opt in ("--allow-duplicates"):
       allow_duplicates = True
     elif opt in ("--timeout"):
@@ -115,26 +121,32 @@ def main():
     else:
       assert False, "Unrecognized option"
 
+  # Sort and remove any duplicates
+  tcp_port = sorted(set(tcp_port))
+
   # Resolve any hosts to IP and add them to list
   if hosts:
     cidr = addHosts(cidr, hosts)
 
-  if not cidr or not tcp_port or not storedsafe:
-    print("ERROR: StoredSafe Server address (--storedsafe), Targets (--cidr) and what port (--port) to scan is mandatory arguments.")
+  if supplied_token:
+    token = supplied_token
+  if rc_file:
+    (storedsafe, token) = readrc(rc_file)
+
+  if not cidr or not storedsafe:
+    print("ERROR: StoredSafe Server address (--storedsafe) and Targets (--cidr or --host) to scan is mandatory arguments.")
     sys.exit()
+  else:
+    url = "https://" + storedsafe + "/api/1.0"
 
-  url = "https://" + storedsafe + "/api/1.0"
-
-  if not supplied_token:
-    if not user or not apikey:
-      print("ERROR: StoredSafe User (--user) and a StoredSafe API key (--apikey) or a valid StoredSafe Token (--token) is mandatory arguments.")
-      sys.exit()
-    else:
+  if not token:
+    if user and apikey:
       pp = passphrase(user)
       otp = OTP(user)
       token = login(user, pp + apikey + otp)
-  else:
-    token = supplied_token
+    else:
+      print("ERROR: StoredSafe User (--user) and a StoredSafe API key (--apikey) or a valid StoredSafe Token (--token) is mandatory arguments.")
+      sys.exit()
 
   # Check if Vaultname exists
   if vaultname:
@@ -144,14 +156,14 @@ def main():
   if vaultid:
     vaultname = findVaultName(vaultid)
   else:
-    if not create_vault or not unique_vault:
-      print("ERROR: One of \"--vault\", \"--vaultid\", \"--create-vault\" or \"--unique-vault\" is mandatory.")
+    if not create_vault:
+      print("ERROR: One of \"--vault\", \"--vaultid\" or \"--create-vault\" is mandatory.")
       sys.exit()
 
   if verbose:
-    printInfo(storedsafe, supplied_token, user, apikey, vaultname, cidr, tcp_port)
+    printInfo(storedsafe, supplied_token, rc_file, user, apikey, vaultname, vaultid, cidr, tcp_port)
 
-  candidates = scan(cidr, tcp_port, timeout)
+  candidates = scan(cidr, tcp_port)
   (imported, duplicates) = uploadCert(candidates, vaultid)
 
   if imported:
@@ -162,7 +174,54 @@ def main():
   sys.exit(0)
 
 def usage():
-  print("%s [--verbose] <-c|--cidr <CIDR>> <-h|--host <host>> <-p|--port <port>> <-s|--storedsafe <host>> <-u|--user <user>> <-a|--apikey <APIKEY>> [-v|--vault <Vaultname>] [--vaultid <Vault-ID>][--import-expired] [--create-vault] [--unique-vault] [--allow-duplicates]" % sys.argv[0])
+  global timeout
+  print("Usage: %s [-vdsuatchp]" % sys.argv[0])
+  print(" --verbose (or -v)              (Boolean) Enable verbose output.")
+  print(" --debug (or -d)                (Boolean) Enable debug output.")
+  print(" --storedsafe (or -s) <Server>  Upload certificates to this StoredSafe server.")
+  print(" --user (or -u) <user>          Authenticate as this user to the StoredSafe server.")
+  print(" --apikey (or -a) <API Key>     Use this unique API key when communicating with StoredSafe.")
+  print(" --token (or -t) <Auth Token>   Use pre-authenticated token instead of --user and --apikey.")
+  print(" --cidr (or -c) <Network/CIDR>  Specify one or more IPv4 or IPv6 networks. Overlapping will be resolved.")
+  print(" --host (or -h) <Hostname/FQDN> Fully qualified domain name (host.domain.cc) of host to scan. Will be resolved to IP address and aggregated.")
+  print(" --port (or -p) <TCP port>      TCP port to scan for X.509 certificates. (Can be specified multiple times)")
+  print(" --vault <Vaultname>            Store any found certificates in this vault. Name has to match exactly.")
+  print(" --vaultid <Vault-ID>           Store any found certificates in this Vault-ID.")
+  print(" --rc <rc file>                 Use this file to obtain a valid token and a server address.")
+  print(" --import-expired               (Boolean) Import expired certificates. Normally, expired certificates are ignored.")
+  print(" --create-vault                 (Boolean) Create missing vaults.")
+  print(" --allow-duplicates             (Boolean) Allow importing the same certificate to the same vault multiple times.")
+  print(" --timeout <seconds>            Set the timeout when scanning for open ports. (default is %d seconds)" % timeout)
+  print("\nExample using interactive login:")
+  print("$ %s --storedsafe safe.domain.cc --user bob --apikey myapikey --cidr 2001:db8:c016::202 --cidr 10.75.106.202/29 \\" % sys.argv[0])
+  print(" --cidr 192.0.2.4 --vault \"Public Web Servers\" --verbose")
+  print("\nExample using pre-authenticated login:")
+  print("$ %s --rc ~/.storedsafe.rc --cidr 2001:db8:c016::202 --host www1.domain.cc --host www2.host.cc --vault \"Public Web Servers\"" % sys.argv[0])
+
+def readrc(rc_file):
+  if os.path.isfile(rc_file):
+    f = open(rc_file, 'rU')
+    for line in f:
+      if "token" in line:
+        token = re.sub('token:([a-zA-Z0-9]+)\n$', r'\1', line)
+        if token == 'none':
+          print("ERROR: No valid token found in \"%s\". Have you logged in?" % rc_file)
+          sys.exit()
+      if "mysite" in line:
+        server = re.sub('mysite:([a-zA-Z0-9.]+)\n$', r'\1', line)
+        if server == 'none':
+          print("ERROR: No valid server specified in \"%s\". Have you logged in?" % rc_file)
+          sys.exit()
+    f.close()
+    if not token:
+      print("ERROR: Could not find a valid token in \"%s\"" % rc_file)
+      sys.exit()
+    if not server:
+      print("ERROR: Could not find a valid server in \"%s\"" % rc_file)
+      sys.exit()
+    return (server, token)
+  else:
+    print("ERROR: Can not open \"%s\"." % rc_file)
 
 def passphrase(user):
   p = getpass.getpass('Enter ' + user + '\'s passphrase: ')
@@ -178,7 +237,7 @@ def login(user, key):
   try:
     r = requests.post(url + '/auth', data=json.dumps(payload))
   except:
-    print("ERROR: No connection.");
+    print("ERROR: No connection to \"%s\"" % url)
     sys.exit()
   data = json.loads(r.content)
   if r.ok:
@@ -188,11 +247,15 @@ def login(user, key):
     sys.exit()
 
 def findVaultID(vaultname):
-  global token, url, verbose
+  global token, url, verbose, debug
   vaultid = False
 
   payload = { 'token': token }
-  r = requests.get(url + '/vault', params=payload)
+  try:
+    r = requests.get(url + '/vault', params=payload)
+  except:
+    print("ERROR: No connection to \"%s\"" % url)
+    sys.exit()
   data = json.loads(r.content)
   if not r.ok:
     print("ERROR: Can not find any vaults.")
@@ -201,19 +264,27 @@ def findVaultID(vaultname):
   for v in data["GROUP"].iteritems():
     if vaultname == data["GROUP"][v[0]]["groupname"]:
       vaultid = v[0]
-      if verbose: print("Found Vault \"%s\" via Vaultname as Vault-ID \"%s\"" % (vaultname, vaultid))
+      if debug: print("Found Vault \"%s\" via Vaultname as Vault-ID \"%s\"" % (vaultname, vaultid))
 
   if not vaultid:
-    print("ERROR: Can not find Vaultname \"%s\"." % vaultname)
-    sys.exit()
+    if create_vault:
+      print("ERROR: Can not find Vaultname \"%s\", will try to create a new vault." % vaultname)
+      vaultid = False
+    else:
+      print("ERROR: Can not find Vaultname \"%s\" and \"--create-vault\" not specified." % vaultname)   
+      sys.exit()
 
   return(vaultid)
 
 def findVaultName(vaultid):
-  global token, url, create_vault, verbose
+  global token, url, create_vault, verbose, debug
 
   payload = { 'token': token }
-  r = requests.get(url + '/vault/' + vaultid, params=payload)
+  try:
+    r = requests.get(url + '/vault/' + vaultid, params=payload)
+  except:
+    print("ERROR: No connection to \"%s\"" % url)
+    sys.exit()
   data = json.loads(r.content)
   if not r.ok:
     if create_vault:
@@ -225,7 +296,7 @@ def findVaultName(vaultid):
 
   if data["CALLINFO"]["status"] == "SUCCESS":
     vaultname = data["GROUP"][vaultid]["groupname"]
-    if verbose: print("Found Vault \"%s\" via Vault-ID \"%s\"" % (vaultname, vaultid))
+    if debug: print("Found Vault \"%s\" via Vault-ID \"%s\"" % (vaultname, vaultid))
   else:
     print("ERROR: Can not retreive Vaultname for Vault-ID %s." % vaultid)
     sys.exit()
@@ -248,17 +319,20 @@ def addHosts(cidr, hosts):
 
   return(cidr)
 
-def printInfo(storedsafe, supplied_token, user, apikey, vaultname, cidr, tcp_port):
-    global token, url, create_vault, import_expired, unique_vault
-    print("Using StoredSafe Server \"%s\" (URL: \"%s\")" % (storedsafe, url))
-    if not supplied_token:
+def printInfo(storedsafe, supplied_token, rc_file, user, apikey, vaultname, vaultid, cidr, tcp_port):
+    global token, url, create_vault, import_expired, timeout
+    print("StoredSafe Server \"%s\" (URL: %s)" % (storedsafe, url))
+    if not supplied_token and not rc_file:
       print("Logged in as \"%s\" with the API key \"%s\"" % (user, apikey))
-    print("Using the token \"%s\"" % token)
+    print("Using token \"%s\"" % token)
+    if rc_file:
+      print("[Obtained StoredSafe Server and token from \"%s\"]" % rc_file)
 
-    if vaultname:      print("Will store found certificates in Vault \"%s\"" % (vaultname))
-    if create_vault:   print("Will create missing vaults.")
-    if import_expired: print("Will import expired certificates.")
-    if unique_vault:   print("Importing each certificates into a unique vault.")
+    if vaultname:        print("Will store found certificates in the Vault \"%s\" (Vault-ID %s)" % (vaultname, vaultid))
+    if create_vault:     print("Will create missing vaults.")
+    if import_expired:   print("Will import expired certificates.")
+    if allow_duplicates: print("Will import already existing certificates.")
+    if timeout != 2:     print("Timeout when scanning is set to %d seconds. (Default is 2s)" % timeout)
 
     networks = []
     for p in cidr_merge(cidr):
@@ -268,8 +342,8 @@ def printInfo(storedsafe, supplied_token, user, apikey, vaultname, cidr, tcp_por
     print(" on port/s: %s" % ', '.join(tcp_port))
     print("[Legend: \".\" for no response, \"!\" for an open port]")
 
-def scan(cidr, tcp_port, timeout):
-  global verbose
+def scan(cidr, tcp_port):
+  global verbose, timeout
   candidates = []
   for net in cidr_merge(cidr):
     for ip in list(net):
@@ -299,7 +373,7 @@ def scan(cidr, tcp_port, timeout):
 def uploadCert(candidates, vaultid):
   imported = duplicates = 0
   exists = False
-  global token, url, verbose, import_expired, create_vault, unique_vault, allow_duplicates
+  global token, url, verbose, import_expired, create_vault, allow_duplicates
 
   for candidate in candidates:
     (host, port) = candidate.split(';')
