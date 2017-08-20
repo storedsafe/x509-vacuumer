@@ -1,8 +1,8 @@
-# argus
+# x509-vacuumer
 
-argus.py is a simple script to locate, retrieve and store X.509 certificates in StoredSafe.
+x509-vacuumer.py is a simple script to locate, retrieve and store X.509 certificates in StoredSafe.
 
-argus.py will parse the certificate and store relevant meta information alongside  the certificate in StoredSafe.
+x509-vacuumer.py will parse the certificate and store relevant meta information alongside the certificate in StoredSafe.
 
 StoredSafe's PubSub system will receive a subscription on an alert 30 days prior to the expiration date of each stored certificate.
 
@@ -34,8 +34,8 @@ sudo -H pip install netaddr
 ## Syntax
 
 ```
-$ argus --help
-Usage: argus.py [-vdsuatchp]
+$ x509-vacuumer --help
+Usage: x509-vacuumer.py [-vdsuatchp]
  --verbose (or -v)              (Boolean) Enable verbose output.
  --debug (or -d)                (Boolean) Enable debug output.
  --storedsafe (or -s) <Server>  Upload certificates to this StoredSafe server.
@@ -54,11 +54,11 @@ Usage: argus.py [-vdsuatchp]
  --timeout <seconds>            Set the timeout when scanning for open ports. (default is 2 seconds)
 
 Example using interactive login:
-$ argus.py --storedsafe safe.domain.cc --user bob --apikey myapikey --cidr 2001:db8:c016::202 --cidr 10.75.106.202/29 \
+$ x509-vacuumer.py --storedsafe safe.domain.cc --user bob --apikey myapikey --cidr 2001:db8:c016::202 --cidr 10.75.106.202/29 \
  --cidr 192.0.2.4 --vault "Public Web Servers" --verbose
 
 Example using pre-authenticated login:
-$ argus.py --rc ~/.storedsafe.rc --cidr 2001:db8:c016::202 --host www1.domain.cc --host www2.host.cc --vault "Public Web Servers"
+$ x509-vacuumer.py --rc ~/.storedsafe.rc --cidr 2001:db8:c016::202 --host www1.domain.cc --host www2.host.cc --vault "Public Web Servers"
 ```
 
 ```
@@ -136,7 +136,7 @@ Usage
 Scan the networks 2001:db8:c016::202/128, 10.75.106.202/29 and 192.0.2.4/32 on port 443 for X.509 certificates. Store any certificates found in the "Public Web Servers" Vault on the StoredSafe server "safe.domain.cc" and arm an alarm that will fire 30 days prior to each certificates expiration date.
 
 ```
-$ argus.py -c 2001:db8:c016::202 -c 10.75.106.202/29 -c 192.0.2.4 -p 443 -s safe.domain.cc -u bob --apikey myapikey --vault "Public Web Servers" --verbose
+$ x509-vacuumer.py -c 2001:db8:c016::202 -c 10.75.106.202/29 -c 192.0.2.4 -p 443 -s safe.domain.cc -u bob --apikey myapikey --vault "Public Web Servers" --verbose
 Enter bob's passphrase:
 Press bob's Yubikey:
 Using StoredSafe Server "safe.domain.cc" (URL: "https://safe.domain.cc/api/1.0")
@@ -155,10 +155,10 @@ Host "2001:db8:c016::202:443" (PTR: freeloaders.domain.cc) X509 CommonName="*.do
 Imported 6 certificates.
 ```
 
-Rescan the networks from the example above, argus.py will detect that the certificates are already present in the vault "Public Web Servers" and will avoid storing duplicates by default (can be changed with --allow-duplicates).
+Rescan the networks from the example above, x509-vacuumer.py will detect that the certificates are already present in the vault "Public Web Servers" and will avoid storing duplicates by default (can be changed with --allow-duplicates).
 
 ```
-$ argus.py -c 2001:db8:c016::202 -c 10.75.106.202/29 -c 192.0.2.4 -s safe.domain.cc -u bob -a abcde12345 --vault "Public Web Servers" --verbose --timeout 1
+$ x509-vacuumer.py -c 2001:db8:c016::202 -c 10.75.106.202/29 -c 192.0.2.4 -s safe.domain.cc -u bob -a abcde12345 --vault "Public Web Servers" --verbose --timeout 1
 Enter bob's passphrase:
 Press bob's Yubikey:
 Using StoredSafe Server "safe.domain.cc" (URL: "https://safe.domain.cc/api/1.0")

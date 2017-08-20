@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-argus.py: search for x509 certificates and store them i storedsafe.
+x509-vacuumer.py: search for x509 certificates and store them i storedsafe.
 """
 
 from __future__ import print_function
@@ -47,6 +47,7 @@ def main():
   hosts = []
   cidr = []
   tcp_port = [ '443']
+  rc_file = os.path.expanduser('~/.storedsafe-client.rc')
   user = apikey = vaultid = vaultname = supplied_token = rc_file = False
   global token, url, verbose, debug, import_expired, create_vault, allow_duplicates, timeout
 
