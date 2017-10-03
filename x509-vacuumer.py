@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-x509-vacuumer.py: search for x509 certificates and store them i storedsafe.
+x509-vacuumer.py: search for x509 certificates and store them in storedsafe.
 """
 
 from __future__ import print_function
@@ -23,7 +23,7 @@ from netaddr import *
 __author__     = "Fredrik Soderblom"
 __copyright__  = "Copyright 2017, AB StoredSafe"
 __license__    = "GPL"
-__version__    = "1.0.1"
+__version__    = "1.0.2"
 __maintainer__ = "Fredrik Soderblom"
 __email__      = "fredrik@storedsafe.com"
 __status__     = "Production"
@@ -44,18 +44,19 @@ timeout          = 2
 """
 
 def main():
+  global token, url, verbose, debug, import_expired, create_vault, allow_duplicates, timeout
+
   hosts = []
   cidr = []
   tcp_port = [ '443']
   rc_file = os.path.expanduser('~/.storedsafe-client.rc')
-  user = apikey = vaultid = vaultname = supplied_token = rc_file = False
-  global token, url, verbose, debug, import_expired, create_vault, allow_duplicates, timeout
+  user = apikey = vaultid = vaultname = supplied_token = list_vaults = storedsafe = False
 
   try:
-   opts, args = getopt.getopt(sys.argv[1:], "c:p:s:u:a:v:t:h:",\
-    [ "verbose", "cidr=", "port=", "storedsafe=", "token=", "user=", "apikey=", "vault=",\
-    "vaultid=", "host=", "rc=", "timeout=", "import-expired", "create-vault",\
-    "allow-duplicates", "debug" ])
+   opts, args = getopt.getopt(sys.argv[1:], "c:p:s:u:a:t:h:",\
+    [ "verbose", "debug", "cidr=", "port=", "storedsafe=", "token=", "user=", "apikey=", \
+    "vault=", "vaultid=", "host=", "rc=", "timeout=", "import-expired", "create-vault",\
+    "allow-duplicates", "list-vaults", "help" ])
   except getopt.GetoptError as err:
     print("%s" % str(err))
     usage()
@@ -104,7 +105,7 @@ def main():
         sys.exit()
     elif opt in ("--rc"):
       rc_file = arg
-    elif opt in ("-v", "--vault"):
+    elif opt in ("--vault"):
       vaultname = arg
     elif opt in ("--vaultid"):
       vaultid = arg
@@ -116,6 +117,8 @@ def main():
       allow_duplicates = True
     elif opt in ("--timeout"):
       timeout = int(arg)
+    elif opt in ("--list-vaults", "--vaults"):
+      list_vaults = True
     elif opt in ("-?", "--help"):
       usage()
       sys.exit()
@@ -134,8 +137,8 @@ def main():
   if rc_file:
     (storedsafe, token) = readrc(rc_file)
 
-  if not cidr or not storedsafe:
-    print("ERROR: StoredSafe Server address (--storedsafe) and Targets (--cidr or --host) to scan is mandatory arguments.")
+  if not storedsafe:
+    print("ERROR: StoredSafe Server address (--storedsafe) is a mandatory argument.")
     sys.exit()
   else:
     url = "https://" + storedsafe + "/api/1.0"
@@ -149,6 +152,14 @@ def main():
       print("ERROR: StoredSafe User (--user) and a StoredSafe API key (--apikey) or a valid StoredSafe Token (--token) is mandatory arguments.")
       sys.exit()
 
+  if not authCheck():
+    sys.exit()
+
+  # Just list vaults available to the current logged in user
+  if list_vaults:
+    listVaults()
+    sys.exit()
+
   # Check if Vaultname exists
   if vaultname:
     vaultid = findVaultID(vaultname)
@@ -160,6 +171,10 @@ def main():
     if not create_vault:
       print("ERROR: One of \"--vault\", \"--vaultid\" or \"--create-vault\" is mandatory.")
       sys.exit()
+
+  if not cidr:
+    print("ERROR: Targets (--cidr or --host) to scan is mandatory arguments.")
+    sys.exit()
 
   if verbose:
     printInfo(storedsafe, supplied_token, rc_file, user, apikey, vaultname, vaultid, cidr, tcp_port)
@@ -193,6 +208,7 @@ def usage():
   print(" --create-vault                 (Boolean) Create missing vaults.")
   print(" --allow-duplicates             (Boolean) Allow importing the same certificate to the same vault multiple times.")
   print(" --timeout <seconds>            Set the timeout when scanning for open ports. (default is %d seconds)" % timeout)
+  print(" --list-vaults                  List all vaults accessible to the authenticated user.")
   print("\nExample using interactive login:")
   print("$ %s --storedsafe safe.domain.cc --user bob --apikey myapikey --cidr 2001:db8:c016::202 --cidr 10.75.106.202/29 \\" % sys.argv[0])
   print(" --cidr 192.0.2.4 --vault \"Public Web Servers\" --verbose")
@@ -246,6 +262,28 @@ def login(user, key):
   else:
     print("ERROR: %s" % data["ERRORS"][0])
     sys.exit()
+
+def authCheck():
+  global token, url, verbose, debug
+
+  payload = { 'token': token }
+  try:
+    r = requests.post(url + '/auth/check', data=json.dumps(payload))
+  except:
+    print("ERROR: Can not reach \"%s\"" % url)
+    sys.exit()
+  if not r.ok:
+    print("Not logged in.")
+    sys.exit()
+
+  data = json.loads(r.content)
+  if data['CALLINFO']['status'] == 'SUCCESS':
+    if debug: print("DEBUG: Authenticated using token \"%s\"." % token)
+  else:
+    print("ERROR: Session not authenticated with server. Token invalid?")
+    return(False)
+
+  return(True)
 
 def findVaultID(vaultname):
   global token, url, verbose, debug
@@ -303,6 +341,34 @@ def findVaultName(vaultid):
     sys.exit()
 
   return(vaultname)
+
+def listVaults():
+  global token, url, verbose, debug
+
+  vaultname = False
+  vaultid = False
+
+  payload = { 'token': token }
+  try:
+    r = requests.get(url + '/vault', params=payload)
+  except:
+    print("ERROR: No connection to \"%s\"" % url)
+    sys.exit()
+  if not r.ok:
+    print("ERROR: Can not find any vaults.")
+    sys.exit()
+
+  data = json.loads(r.content)
+  if (len(data["GROUP"])): # Unless result is empty
+    for v in data["GROUP"].iteritems():
+      vaultname = data["GROUP"][v[0]]["groupname"]
+      vaultid = v[0]
+      permission = data["GROUP"][v[0]]["statustext"]
+      print("Vault \"%s\" (Vault-ID \"%s\") with \"%s\" permissions." % (vaultname, vaultid, permission))
+  else:
+    print("You don't have access to any vaults. Bohoo.")
+
+  return
 
 def addHosts(cidr, hosts):
   for host in hosts:
@@ -455,13 +521,16 @@ def find_duplicates(cn, validto, altnamedns, vaultid):
   if not r.ok:
     return(False)
 
-  for v in data["OBJECT"].iteritems():
-    if vaultid == data["OBJECT"][v[0]]["groupid"]:
-      if cn == data["OBJECT"][v[0]]["public"]["cn"]:
-        if validto == data["OBJECT"][v[0]]["public"]["validto"]:
-          if altnamedns == data["OBJECT"][v[0]]["public"]["altnamedns"]:
-            if verbose: print("Found existing certificate as Object-ID \"%s\" in Vault-ID \"%s\"" % (v[0], vaultid))
-            duplicate = True
+  if (len(data["OBJECT"])): # Unless result is empty
+    for v in data["OBJECT"].iteritems():
+      if vaultid == data["OBJECT"][v[0]]["groupid"]:
+        if cn == data["OBJECT"][v[0]]["public"]["cn"]:
+          if validto == data["OBJECT"][v[0]]["public"]["validto"]:
+            if altnamedns == data["OBJECT"][v[0]]["public"]["altnamedns"]:
+              if verbose: print("Found existing certificate as Object-ID \"%s\" in Vault-ID \"%s\"" % (v[0], vaultid))
+              duplicate = True
+  else:
+    if debug: print("Search returned no items.")
 
   return(duplicate)
 
