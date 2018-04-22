@@ -21,9 +21,9 @@ from requests_toolbelt.multipart.encoder import MultipartEncoder
 from netaddr import *
 
 __author__     = "Fredrik Soderblom"
-__copyright__  = "Copyright 2017, AB StoredSafe"
+__copyright__  = "Copyright 2018, AB StoredSafe"
 __license__    = "GPL"
-__version__    = "1.0.2"
+__version__    = "1.0.3"
 __maintainer__ = "Fredrik Soderblom"
 __email__      = "fredrik@storedsafe.com"
 __status__     = "Production"
@@ -49,8 +49,10 @@ def main():
   hosts = []
   cidr = []
   tcp_port = [ '443']
-  rc_file = os.path.expanduser('~/.storedsafe-client.rc')
-  user = apikey = vaultid = vaultname = supplied_token = list_vaults = storedsafe = False
+  rc_file = user = apikey = vaultid = vaultname = supplied_token = list_vaults = storedsafe = False
+
+  if os.path.isfile(os.path.expanduser('~/.storedsafe-client.rc')):
+    rc_file = os.path.expanduser('~/.storedsafe-client.rc')
 
   try:
    opts, args = getopt.getopt(sys.argv[1:], "c:p:s:u:a:t:h:",\
@@ -216,29 +218,24 @@ def usage():
   print("$ %s --rc ~/.storedsafe.rc --cidr 2001:db8:c016::202 --host www1.domain.cc --host www2.host.cc --vault \"Public Web Servers\"" % sys.argv[0])
 
 def readrc(rc_file):
+  token = server = False
   if os.path.isfile(rc_file):
     f = open(rc_file, 'rU')
     for line in f:
       if "token" in line:
         token = re.sub('token:([a-zA-Z0-9]+)\n$', r'\1', line)
-        if token == 'none':
-          print("ERROR: No valid token found in \"%s\". Have you logged in?" % rc_file)
-          sys.exit()
+        if token == 'none': token = False
       if "mysite" in line:
         server = re.sub('mysite:([a-zA-Z0-9.]+)\n$', r'\1', line)
-        if server == 'none':
-          print("ERROR: No valid server specified in \"%s\". Have you logged in?" % rc_file)
-          sys.exit()
+        if server == 'none': server = False
     f.close()
-    if not token:
-      print("ERROR: Could not find a valid token in \"%s\"" % rc_file)
-      sys.exit()
-    if not server:
-      print("ERROR: Could not find a valid server in \"%s\"" % rc_file)
-      sys.exit()
+    if not token: print("INFO: Could not find a valid token in \"%s\", skipping it." % rc_file)
+    if not server: print("INFO: Could not find a valid server in \"%s\", skipping it." % rc_file)
     return (server, token)
   else:
     print("ERROR: Can not open \"%s\"." % rc_file)
+
+  return (server, token)
 
 def passphrase(user):
   p = getpass.getpass('Enter ' + user + '\'s passphrase: ')
