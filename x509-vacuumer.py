@@ -21,9 +21,9 @@ from requests_toolbelt.multipart.encoder import MultipartEncoder
 from netaddr import *
 
 __author__     = "Fredrik Soderblom"
-__copyright__  = "Copyright 2018, AB StoredSafe"
+__copyright__  = "Copyright 2019, AB StoredSafe"
 __license__    = "GPL"
-__version__    = "1.0.3"
+__version__    = "1.0.4"
 __maintainer__ = "Fredrik Soderblom"
 __email__      = "fredrik@storedsafe.com"
 __status__     = "Production"
@@ -37,6 +37,8 @@ debug            = False
 import_expired   = False
 create_vault     = False
 allow_duplicates = False
+basic_auth_user  = False
+basic_auth_pw    = False
 timeout          = 2
 
 """
@@ -44,7 +46,7 @@ timeout          = 2
 """
 
 def main():
-  global token, url, verbose, debug, import_expired, create_vault, allow_duplicates, timeout
+  global token, url, verbose, debug, import_expired, create_vault, allow_duplicates, timeout, basic_auth_user, basic_auth_pw
 
   hosts = []
   cidr = []
@@ -55,10 +57,10 @@ def main():
     rc_file = os.path.expanduser('~/.storedsafe-client.rc')
 
   try:
-   opts, args = getopt.getopt(sys.argv[1:], "c:p:s:u:a:t:h:",\
+   opts, args = getopt.getopt(sys.argv[1:], "vdc:p:s:u:a:t:h:",\
     [ "verbose", "debug", "cidr=", "port=", "storedsafe=", "token=", "user=", "apikey=", \
     "vault=", "vaultid=", "host=", "rc=", "timeout=", "import-expired", "create-vault",\
-    "allow-duplicates", "list-vaults", "help" ])
+    "allow-duplicates", "list-vaults", "basic-auth-user=", "help" ])
   except getopt.GetoptError as err:
     print("%s" % str(err))
     usage()
@@ -71,9 +73,9 @@ def main():
     sys.exit()
 
   for opt, arg in opts:
-    if opt in ("--verbose"):
+    if opt in ("-v", "--verbose"):
       verbose = True
-    elif opt in ("--debug"):
+    elif opt in ("-d", "--debug"):
       debug = True
     elif opt in ("-c", "--cidr"):
       try:
@@ -121,6 +123,8 @@ def main():
       timeout = int(arg)
     elif opt in ("--list-vaults", "--vaults"):
       list_vaults = True
+    elif opt in ("--basic-auth-user"):
+      (basic_auth_user, basic_auth_pw) = arg.split(':')
     elif opt in ("-?", "--help"):
       usage()
       sys.exit()
@@ -192,7 +196,6 @@ def main():
   sys.exit(0)
 
 def usage():
-  global timeout
   print("Usage: %s [-vdsuatchp]" % sys.argv[0])
   print(" --verbose (or -v)              (Boolean) Enable verbose output.")
   print(" --debug (or -d)                (Boolean) Enable debug output.")
@@ -211,6 +214,7 @@ def usage():
   print(" --allow-duplicates             (Boolean) Allow importing the same certificate to the same vault multiple times.")
   print(" --timeout <seconds>            Set the timeout when scanning for open ports. (default is %d seconds)" % timeout)
   print(" --list-vaults                  List all vaults accessible to the authenticated user.")
+  print(" --basic-auth-user <user:pw>    Specify the user name and password to use for HTTP Basic Authentication")
   print("\nExample using interactive login:")
   print("$ %s --storedsafe safe.domain.cc --user bob --apikey myapikey --cidr 2001:db8:c016::202 --cidr 10.75.106.202/29 \\" % sys.argv[0])
   print(" --cidr 192.0.2.4 --vault \"Public Web Servers\" --verbose")
@@ -220,7 +224,7 @@ def usage():
 def readrc(rc_file):
   token = server = False
   if os.path.isfile(rc_file):
-    f = open(rc_file, 'rU')
+    f = open(rc_file, 'r')
     for line in f:
       if "token" in line:
         token = re.sub('token:([a-zA-Z0-9]+)\n$', r'\1', line)
@@ -246,10 +250,12 @@ def OTP(user):
   return(otp)
 
 def login(user, key):
-  global url
   payload = { 'username': user, 'keys': key }
   try:
-    r = requests.post(url + '/auth', data=json.dumps(payload))
+    if basic_auth_user:
+      r = requests.post(url + '/auth', data=json.dumps(payload), auth=(basic_auth_user, basic_auth_pw))
+    else:
+      r = requests.post(url + '/auth', data=json.dumps(payload))
   except:
     print("ERROR: No connection to \"%s\"" % url)
     sys.exit()
@@ -265,7 +271,10 @@ def authCheck():
 
   payload = { 'token': token }
   try:
-    r = requests.post(url + '/auth/check', data=json.dumps(payload))
+    if basic_auth_user:
+      r = requests.post(url + '/auth/check', data=json.dumps(payload), auth=(basic_auth_user, basic_auth_pw))
+    else:
+      r = requests.post(url + '/auth/check', data=json.dumps(payload))
   except:
     print("ERROR: Can not reach \"%s\"" % url)
     sys.exit()
@@ -283,12 +292,13 @@ def authCheck():
   return(True)
 
 def findVaultID(vaultname):
-  global token, url, verbose, debug
   vaultid = False
-
   payload = { 'token': token }
   try:
-    r = requests.get(url + '/vault', params=payload)
+    if basic_auth_user:
+      r = requests.get(url + '/vault', params=payload, auth=(basic_auth_user, basic_auth_pw))
+    else:
+      r = requests.get(url + '/vault', params=payload)
   except:
     print("ERROR: No connection to \"%s\"" % url)
     sys.exit()
@@ -297,7 +307,7 @@ def findVaultID(vaultname):
     print("ERROR: Can not find any vaults.")
     sys.exit()
 
-  for v in data["GROUP"].iteritems():
+  for v in data["GROUP"].items():
     if vaultname == data["GROUP"][v[0]]["groupname"]:
       vaultid = v[0]
       if debug: print("Found Vault \"%s\" via Vaultname as Vault-ID \"%s\"" % (vaultname, vaultid))
@@ -313,11 +323,13 @@ def findVaultID(vaultname):
   return(vaultid)
 
 def findVaultName(vaultid):
-  global token, url, create_vault, verbose, debug
-
+  vaultname = False
   payload = { 'token': token }
   try:
-    r = requests.get(url + '/vault/' + vaultid, params=payload)
+    if basic_auth_user:
+      r = requests.get(url + '/vault/' + vaultid, params=payload, auth=(basic_auth_user, basic_auth_pw))
+    else:
+      r = requests.get(url + '/vault/' + vaultid, params=payload)
   except:
     print("ERROR: No connection to \"%s\"" % url)
     sys.exit()
@@ -340,14 +352,14 @@ def findVaultName(vaultid):
   return(vaultname)
 
 def listVaults():
-  global token, url, verbose, debug
-
   vaultname = False
   vaultid = False
-
   payload = { 'token': token }
   try:
-    r = requests.get(url + '/vault', params=payload)
+    if basic_auth_user:
+      r = requests.get(url + '/vault', params=payload, auth=(basic_auth_user, basic_auth_pw))
+    else:
+      r = requests.get(url + '/vault', params=payload)
   except:
     print("ERROR: No connection to \"%s\"" % url)
     sys.exit()
@@ -357,7 +369,7 @@ def listVaults():
 
   data = json.loads(r.content)
   if (len(data["GROUP"])): # Unless result is empty
-    for v in data["GROUP"].iteritems():
+    for v in data["GROUP"].items():
       vaultname = data["GROUP"][v[0]]["groupname"]
       vaultid = v[0]
       permission = data["GROUP"][v[0]]["statustext"]
@@ -384,13 +396,13 @@ def addHosts(cidr, hosts):
   return(cidr)
 
 def printInfo(storedsafe, supplied_token, rc_file, user, apikey, vaultname, vaultid, cidr, tcp_port):
-    global token, url, create_vault, import_expired, timeout
-    print("StoredSafe Server \"%s\" (URL: %s)" % (storedsafe, url))
-    if not supplied_token and not rc_file:
-      print("Logged in as \"%s\" with the API key \"%s\"" % (user, apikey))
-    print("Using token \"%s\"" % token)
-    if rc_file:
-      print("[Obtained StoredSafe Server and token from \"%s\"]" % rc_file)
+    if debug:
+      print("StoredSafe Server \"%s\" (URL: %s)" % (storedsafe, url))
+      if not supplied_token and not rc_file:
+        print("Logged in as \"%s\" with the API key \"%s\"" % (user, apikey))
+      print("Using token \"%s\"" % token)
+      if rc_file:
+        print("[Obtained StoredSafe Server and token from \"%s\"]" % rc_file)
 
     if vaultname:        print("Will store found certificates in the Vault \"%s\" (Vault-ID %s)" % (vaultname, vaultid))
     if create_vault:     print("Will create missing vaults.")
@@ -407,7 +419,6 @@ def printInfo(storedsafe, supplied_token, rc_file, user, apikey, vaultname, vaul
     print("[Legend: \".\" for no response, \"!\" for an open port]")
 
 def scan(cidr, tcp_port):
-  global verbose, timeout
   candidates = []
   for net in cidr_merge(cidr):
     for ip in list(net):
@@ -437,8 +448,6 @@ def scan(cidr, tcp_port):
 def uploadCert(candidates, vaultid):
   imported = duplicates = 0
   exists = False
-  global token, url, verbose, import_expired, create_vault, allow_duplicates
-
   for candidate in candidates:
     (host, port) = candidate.split(';')
 
@@ -470,7 +479,10 @@ def uploadCert(candidates, vaultid):
         'token': token
       }
     )
-    r = requests.post(url + '/filecollect', data=multipart_data, headers={'Content-Type': multipart_data.content_type})
+    if basic_auth_user:
+      r = requests.post(url + '/filecollect', data=multipart_data, headers={'Content-Type': multipart_data.content_type}, auth=(basic_auth_user, basic_auth_pw))
+    else:
+      r = requests.post(url + '/filecollect', data=multipart_data, headers={'Content-Type': multipart_data.content_type})
     if not r.ok:
       print("ERROR: Could not obtain file meta data on \"%s\"" % x509.get_subject().CN)
       sys.exit()
@@ -488,7 +500,7 @@ def uploadCert(candidates, vaultid):
         'keylength':  data["DATA"]["keylength"],
         'keyusage':   data["DATA"]["keyusage"],
         'altnamedns': data["DATA"]["altnamedns"],
-        'info':       name,
+        'info':       'Retrieved from ' + name + ' (IP: ' + host + ', port: ' + str(port) + ') by x509-vacuumer.',
         'parentid':   '0',
         'groupid':    vaultid,
         'token':      token
@@ -499,7 +511,10 @@ def uploadCert(candidates, vaultid):
       exists = find_duplicates(data["DATA"]["cn"], data["DATA"]["validto"], data["DATA"]["altnamedns"], vaultid)
 
     if not exists:
-      r = requests.post(url + '/object', data=multipart_data, headers={'Content-Type': multipart_data.content_type})
+      if basic_auth_user:
+        r = requests.post(url + '/object', data=multipart_data, headers={'Content-Type': multipart_data.content_type}, auth=(basic_auth_user, basic_auth_pw))
+      else:
+        r = requests.post(url + '/object', data=multipart_data, headers={'Content-Type': multipart_data.content_type})
       if not r.ok:
         print("ERROR: Could not save certificate for \"%s\"" % x509.get_subject().CN)
         sys.exit()
@@ -512,14 +527,17 @@ def uploadCert(candidates, vaultid):
 
 def find_duplicates(cn, validto, altnamedns, vaultid):
   duplicate = False
-  payload = { 'token': token, 'needle': cn }
-  r = requests.get(url + '/find', params=payload)
+  payload = { 'token': token }
+  if basic_auth_user:
+    r = requests.get(url + '/vault/' + vaultid, params=payload, auth=(basic_auth_user, basic_auth_pw))
+  else:
+    r = requests.get(url + '/vault/' + vaultid, params=payload)
   data = json.loads(r.content)
   if not r.ok:
     return(False)
 
   if (len(data["OBJECT"])): # Unless result is empty
-    for v in data["OBJECT"].iteritems():
+    for v in data["OBJECT"].items():
       if vaultid == data["OBJECT"][v[0]]["groupid"]:
         if cn == data["OBJECT"][v[0]]["public"]["cn"]:
           if validto == data["OBJECT"][v[0]]["public"]["validto"]:
@@ -527,7 +545,7 @@ def find_duplicates(cn, validto, altnamedns, vaultid):
               if verbose: print("Found existing certificate as Object-ID \"%s\" in Vault-ID \"%s\"" % (v[0], vaultid))
               duplicate = True
   else:
-    if debug: print("Search returned no items.")
+    if debug: print("Duplicate search returned no candidates.")
 
   return(duplicate)
 
@@ -540,7 +558,6 @@ def cur_date():
   return datetime.datetime.now()
 
 def is_expired(x509):
-  global verbose
   expire_date = parse_expire_date(x509)
   delta = expire_date - cur_date()
   if delta.days < 0:
