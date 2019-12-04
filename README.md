@@ -6,13 +6,13 @@ x509-vacuumer.py will parse the certificate and store relevant meta information 
 
 StoredSafe's PubSub system will receive a subscription on an alert 30 days prior to the expiration date of each stored certificate.
 
-The script is written in Python v2 and has been tested on macOS Sierra and on Linux (any fairly recent version of Ubuntu or Red Hat should work fine).
+The script is written in Python v3 and has been tested on macOS Mojave and on Linux (any fairly recent version of Ubuntu or Red Hat should work fine).
 
 ## Installation instructions
 
-This script requires Python v2 and some libraries. 
+This script requires Python v3 and some libraries. 
 
-It has been developed and tested using Python v2.7.10, on macOS Sierra 10.12.4.
+It has been developed and tested using Python v3.7.5, on macOS Mojave 10.14.6.
 
 Most of the required libraries are installed by default,  but others require manual installation. ("requests, requests_toolbelt, netaddr)
 
@@ -34,7 +34,7 @@ sudo -H pip install netaddr
 ## Syntax
 
 ```
-$ x509-vacuumer --help
+$ x509-vacuumer.py --help
 Usage: x509-vacuumer.py [-vdsuatchp]
  --verbose (or -v)              (Boolean) Enable verbose output.
  --debug (or -d)                (Boolean) Enable debug output.
@@ -52,6 +52,8 @@ Usage: x509-vacuumer.py [-vdsuatchp]
  --create-vault                 (Boolean) Create missing vaults.
  --allow-duplicates             (Boolean) Allow importing the same certificate to the same vault multiple times.
  --timeout <seconds>            Set the timeout when scanning for open ports. (default is 2 seconds)
+ --list-vaults                  List all vaults accessible to the authenticated user.
+ --basic-auth-user <user:pw>    Specify the user name and password to use for HTTP Basic Authentication
 
 Example using interactive login:
 $ x509-vacuumer.py --storedsafe safe.domain.cc --user bob --apikey myapikey --cidr 2001:db8:c016::202 --cidr 10.75.106.202/29 \
@@ -131,6 +133,16 @@ $ x509-vacuumer.py --rc ~/.storedsafe.rc --cidr 2001:db8:c016::202 --host www1.d
 ```
 > Set the timeout when scanning for open ports. Defaults to 2 seconds.
 
+```
+--list-vaults
+```
+> List all vaults accessible to the authenticated user.
+
+```
+--basic-auth-user <user:pw>
+```
+> Specify the user name and password to use for HTTP Basic Authentication.
+
 Usage
 =====
 Scan the networks 2001:db8:c016::202/128, 10.75.106.202/29 and 192.0.2.4/32 on port 443 for X.509 certificates. Store any certificates found in the "Public Web Servers" Vault on the StoredSafe server "safe.domain.cc" and arm an alarm that will fire 30 days prior to each certificates expiration date.
@@ -140,8 +152,8 @@ $ x509-vacuumer.py -c 2001:db8:c016::202 -c 10.75.106.202/29 -c 192.0.2.4 -p 443
 Enter bob's passphrase:
 Press bob's Yubikey:
 Using StoredSafe Server "safe.domain.cc" (URL: "https://safe.domain.cc/api/1.0")
-Logged in as "bob" with the API key "myapikey"
-Using the token "xyzzyxyzzy"
+Logged in as "bob" with the API key "MyAPIKey"
+Using the token "XyzzyXyzzy"
 Will store found certificates in Vault "Public Web Servers" (Vault-ID 181)
 Scanning network/s: 192.0.2.4/32, 10.75.106.202/29, 2001:db8:c016::202/128 on port/s: 443
 [Legend: "." for no response, "!" for an open port]
