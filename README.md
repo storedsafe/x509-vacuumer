@@ -12,9 +12,14 @@ The script is written in Python v3 and has been tested on macOS Mojave and on Li
 
 This script requires Python v3 and some libraries. 
 
-It has been developed and tested using Python v3.7.5, on macOS Mojave 10.14.6.
+It has been developed and tested using Python v3.7.7, on macOS Catalina 10.15.3.
 
-Most of the required libraries are installed by default,  but others require manual installation. ("requests, requests_toolbelt, netaddr)
+Most of the required libraries are installed by default, but others might require manual installation. (requests, requests_toolbelt, netaddr)
+
+```
+sudo pip install -r requirements.txt
+```
+or
 
 **requests:**
 ```
@@ -38,22 +43,24 @@ $ x509-vacuumer.py --help
 Usage: x509-vacuumer.py [-vdsuatchp]
  --verbose (or -v)              (Boolean) Enable verbose output.
  --debug (or -d)                (Boolean) Enable debug output.
+ --rc <rc file>                 Use this file to obtain a valid token and a server address.
  --storedsafe (or -s) <Server>  Upload certificates to this StoredSafe server.
  --user (or -u) <user>          Authenticate as this user to the StoredSafe server.
  --apikey (or -a) <API Key>     Use this unique API key when communicating with StoredSafe.
  --token (or -t) <Auth Token>   Use pre-authenticated token instead of --user and --apikey.
+ --basic-auth-user <user:pw>    Specify the user name and password to use for HTTP Basic Authentication
  --cidr (or -c) <Network/CIDR>  Specify one or more IPv4 or IPv6 networks. Overlapping will be resolved.
  --host (or -h) <Hostname/FQDN> Fully qualified domain name (host.domain.cc) of host to scan. Will be resolved to IP address and aggregated.
  --port (or -p) <TCP port>      TCP port to scan for X.509 certificates. (Can be specified multiple times)
  --vault <Vaultname>            Store any found certificates in this vault. Name has to match exactly.
  --vaultid <Vault-ID>           Store any found certificates in this Vault-ID.
- --rc <rc file>                 Use this file to obtain a valid token and a server address.
- --import-expired               (Boolean) Import expired certificates. Normally, expired certificates are ignored.
  --create-vault                 (Boolean) Create missing vaults.
+ --policy <policy-id>           Use this password policy for newly created vaults. (Default to policy #7)
+ --description <text>           Use this as description for any newly created vault. (Default to "Created by x509-vacuumer.")
+ --import-expired               (Boolean) Import expired certificates. Normally, expired certificates are ignored.
  --allow-duplicates             (Boolean) Allow importing the same certificate to the same vault multiple times.
  --timeout <seconds>            Set the timeout when scanning for open ports. (default is 2 seconds)
  --list-vaults                  List all vaults accessible to the authenticated user.
- --basic-auth-user <user:pw>    Specify the user name and password to use for HTTP Basic Authentication
 
 Example using interactive login:
 $ x509-vacuumer.py --storedsafe safe.domain.cc --user bob --apikey myapikey --cidr 2001:db8:c016::202 --cidr 10.75.106.202/29 \
@@ -74,6 +81,31 @@ $ x509-vacuumer.py --rc ~/.storedsafe.rc --cidr 2001:db8:c016::202 --host www1.d
 > Add debug output
 
 ```
+--storedsafe|-s <server>
+```
+> Upload certificates to this StoredSafe server
+
+```
+--user|-u <user>
+```
+> Authenticate as this StoredSafe user
+
+```
+--apikey|-a <apikey>
+```
+> Use this unique API key when communicating with StoredSafe. (Unique per application and installation)
+
+```
+--token <token>
+```
+> Use pre-authenticated token instead of ```--user``` and ```--apikey```, also removes requirement to login with passphrase and OTP.
+
+```
+--basic-auth-user <user:pw>
+```
+> Specify the user name and password to use for HTTP Basic Authentication.
+
+```
 --cidr|-c <ipv4 or IPv6 network>
 ```
 > Specify one or more IPv4 or IPv6 networks. Overlapping will be resolved.
@@ -89,26 +121,6 @@ $ x509-vacuumer.py --rc ~/.storedsafe.rc --cidr 2001:db8:c016::202 --host www1.d
 > TCP port to scan
 
 ```
---storedsafe|-s <server>
-```
-> Upload certificates to this StoredSafe server
-
-```
---token <token>
-```
-> Use pre-authenticated token instead of ```--user``` and ```--apikey```, also removes requirement to login with passphrase and OTP.
-
-```
---user|-u <user>
-```
-> Authenticate as this StoredSafe user
-
-```
---apikey|-a <apikey>
-```
-> Use this unique API key when communicating with StoredSafe. (Unique per application and installation)
-
-```
 --vault|-v <Vaultname>
 ```
 > Store any found certificates in this vault. Name has to match exactly.
@@ -117,6 +129,21 @@ $ x509-vacuumer.py --rc ~/.storedsafe.rc --cidr 2001:db8:c016::202 --host www1.d
 --vaultid <Vault-ID>
 ```
 > Store any found certificates in this Vault-ID.
+
+```
+--create-vault
+```
+> Create missing vaults.
+
+```
+--policy <policy-id>
+```
+> Use this password policy for newly created vaults. (Default to 7)
+
+```
+--description <text>
+```
+> Use this as description for any newly created vault. (Default to "Created by x509-vacuumer.")
 
 ```
 --import-expired
@@ -137,11 +164,6 @@ $ x509-vacuumer.py --rc ~/.storedsafe.rc --cidr 2001:db8:c016::202 --host www1.d
 --list-vaults
 ```
 > List all vaults accessible to the authenticated user.
-
-```
---basic-auth-user <user:pw>
-```
-> Specify the user name and password to use for HTTP Basic Authentication.
 
 Usage
 =====
@@ -194,10 +216,7 @@ Found 5 duplicate certificate/s.
 ```
 
 ## Limitations / Known issues
-```
---create-vault
-```
-> Is not yet implemented.
+No known limitation.
 
 ## License
 GPL

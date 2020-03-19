@@ -1,0 +1,4 @@
+requests>=2.23.0
+requests_toolbelt>=0.9.1
+netaddr>=0.7.19
+pyopenssl>=19.1.0
