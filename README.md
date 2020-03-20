@@ -218,5 +218,9 @@ Found 5 duplicate certificate/s.
 ## Limitations / Known issues
 No known limitation.
 
+## Contributors
+Fredrik Eriksson
+Daniel Eriksson
+
 ## License
 GPL
