@@ -6,8 +6,6 @@ x509-vacuumer.py: search for x509 certificates and store them in storedsafe.
 """
 
 import sys
-import ssl
-import OpenSSL
 import json
 import datetime
 import getopt
@@ -16,13 +14,15 @@ import getpass
 import os.path
 import re
 import requests
+import ssl
+import OpenSSL
 from requests_toolbelt.multipart.encoder import MultipartEncoder
 from netaddr import *
 
 __author__     = "Fredrik Soderblom"
 __copyright__  = "Copyright 2020, AB StoredSafe"
 __license__    = "GPL"
-__version__    = "1.0.5"
+__version__    = "1.0.6"
 __maintainer__ = "Fredrik Soderblom"
 __email__      = "fredrik@storedsafe.com"
 __status__     = "Production"
@@ -42,10 +42,6 @@ timeout          = 2
 vaultpolicy      = '7'
 vaultdescription = 'Created by x509-vacuumer.'
 
-"""
-  FIXME: Skapa valv om det inte finns
-"""
-
 def main():
   global token, url, verbose, debug, import_expired, create_vault, allow_duplicates, timeout,\
     basic_auth_user, basic_auth_pw, vaultpolicy, vaultdescription
@@ -61,7 +57,7 @@ def main():
   try:
    opts, args = getopt.getopt(sys.argv[1:], "vdc:p:s:u:a:t:h:",\
     [ "verbose", "debug", "cidr=", "port=", "storedsafe=", "token=", "user=", "apikey=", \
-    "vault=", "vaultid=", "host=", "rc=", "timeout=", "import-expired", "create-vault",\
+    "vault=", "vaultid=", "vault-id=", "host=", "rc=", "timeout=", "import-expired", "create-vault",\
     "allow-duplicates", "list-vaults", "basic-auth-user=", "policy=", "description=",\
     "help" ])
  
@@ -115,7 +111,7 @@ def main():
       rc_file = arg
     elif opt in ("--vault"):
       vaultname = arg
-    elif opt in ("--vaultid"):
+    elif opt in ("--vaultid", "--vault-id"):
       vaultid = arg
     elif opt in ("--import-expired"):
       import_expired = True
@@ -197,16 +193,17 @@ def main():
     print("ERROR: Targets (--cidr or --host) to scan is mandatory arguments.")
     sys.exit()
 
-  if verbose:
-    printInfo(storedsafe, supplied_token, rc_file, user, apikey, vaultname, vaultid, cidr, tcp_port)
+  if verbose: printInfo(storedsafe, supplied_token, rc_file, user, apikey, vaultname, vaultid, cidr, tcp_port)
 
   candidates = scan(cidr, tcp_port)
-  (imported, duplicates) = uploadCert(candidates, vaultid)
+  (imported, duplicates, expired) = uploadCert(candidates, vaultid)
 
   if imported:
     print("Imported %d certificate/s." % imported)
   if duplicates:
     print("Found %d duplicate certificate/s. " % duplicates)
+  if expired:
+    print("Found %d expired certificate/s. " % expired)
 
   sys.exit(0)
 
@@ -263,7 +260,7 @@ def passphrase(user):
   return(p)
 
 def OTP(user):
-  otp = input('Enter OTP (Yubikey or TOTP): ')
+  otp = eval(input('Enter OTP (Yubikey or TOTP): '))
   return(otp)
 
 def login(user, password, apikey, otp):
@@ -336,15 +333,18 @@ def findVaultID(vaultname):
     print("ERROR: Can not find any vaults.")
     sys.exit()
 
-  for v in list(data["GROUP"].items()):
-    if vaultname == data["GROUP"][v[0]]["groupname"]:
-      vaultid = v[0]
-      if debug: print("Found Vault \"%s\" via Vaultname as Vault-ID \"%s\"" % (vaultname, vaultid))
+  if (len(data["VAULTS"])): # Unless result is empty
+    for vault in data["VAULTS"]:
+      if vaultname == vault["groupname"]:
+        vaultid = vault["id"]
+        if debug: print("Found Vault \"%s\" via Vaultname as Vault-ID \"%s\"" % (vaultname, vaultid))
+        break
 
   if not vaultid:
     if create_vault:
       if debug: print(("DEBUG: Can not find Vaultname \"%s\", will try to create a new vault." % vaultname))
       vaultid = createVault(vaultname)
+      return(vaultid)
     else:
       print(("ERROR: Can not find Vaultname \"%s\" and \"--create-vault\" not specified." % vaultname))
       sys.exit()
@@ -368,12 +368,13 @@ def findVaultName(vaultid):
       if debug: print("DEBUG: Can not find Vault-ID \"%s\", will try to create a new vault." % vaultid)
       vaultname = 'Vault-' + vaultid
       vaultid = createVault(vaultname)
+      return(vaultname)
     else:
       print("ERROR: Can not find Vault-ID \"%s\" and \"--create-vault\" not specified." % vaultid)
       sys.exit()
 
   if data["CALLINFO"]["status"] == "SUCCESS":
-    vaultname = data["GROUP"][vaultid]["groupname"]
+    vaultname = data["VAULT"][0]["groupname"]
     if debug: print("Found Vault \"%s\" via Vault-ID \"%s\"" % (vaultname, vaultid))
   else:
     print("ERROR: Can not retreive Vaultname for Vault-ID %s." % vaultid)
@@ -397,10 +398,13 @@ def createVault(vaultname):
 
   data = json.loads(r.content)
   # There's gotta be better way..
-  # data['GROUP']: {'179': {'id': '179', 'groupname': 'Firewalls in ZA', 'poli
-  v = list(data['GROUP'])
-  vaultid = data['GROUP'][v[0]]['id']
-  if verbose: print("Created new Vault \"" + vaultname + "\" with Vault-ID \"" + vaultid + "\"")
+  # data['VAULT']: {'179': {'id': '179', 'groupname': 'Firewalls in ZA', 'poli
+  try:
+    v = list(data['VAULT'])
+    vaultid = data['VAULT'][0]['id']
+    if verbose: print("Created new Vault \"" + vaultname + "\" with Vault-ID \"" + vaultid + "\"")
+  except:
+    pass
   return(vaultid)
 
 def listVaults():
@@ -420,11 +424,11 @@ def listVaults():
     sys.exit()
 
   data = json.loads(r.content)
-  if (len(data["GROUP"])): # Unless result is empty
-    for v in list(data["GROUP"].items()):
-      vaultname = data["GROUP"][v[0]]["groupname"]
-      vaultid = v[0]
-      permission = data["GROUP"][v[0]]["statustext"]
+  if (len(data["VAULTS"])): # Unless result is empty
+    for vault in data["VAULTS"]:
+      vaultname = vault["groupname"]
+      vaultid = vault["id"]
+      permission = vault["statustext"]
       print("Vault \"%s\" (Vault-ID \"%s\") with \"%s\" permissions." % (vaultname, vaultid, permission))
   else:
     print("You don't have access to any vaults. Bohoo.")
@@ -465,7 +469,7 @@ def printInfo(storedsafe, supplied_token, rc_file, user, apikey, vaultname, vaul
     for p in cidr_merge(cidr):
       networks.append(str(p))
 
-    print("Scanning network/s: %s" % ', '.join(networks), end='')
+    print("Scanning network/s: %s" % (', '.join(networks)), end='')
     print(" on port/s: %s" % ', '.join(tcp_port))
     print("[Legend: \".\" for no response, \"!\" for an open port]")
 
@@ -497,7 +501,7 @@ def scan(cidr, tcp_port):
   return candidates
 
 def uploadCert(candidates, vaultid):
-  imported = duplicates = 0
+  imported = duplicates = expired = 0
   exists = False
   for candidate in candidates:
     (host, port) = candidate.split(';')
@@ -516,6 +520,14 @@ def uploadCert(candidates, vaultid):
       print("WARNING: No SSL/TLS listener on \"%s:%s\" (%s)" % (host, str(port), name))
       continue
 
+    tls_cipher = tls_version = tls_bits = None
+    try:
+      (tls_cipher, tls_version, tls_bits) = sock.cipher()
+      tlsinfo = tls_version + ' (' + tls_cipher + ')'
+    except:
+      print("WARNING: Can not determine TLS version for \"%s:%s\" (%s)" % (host, str(port), name))
+      continue
+
     subject_name = None
     try:
       ext_count = x509cert.get_extension_count()
@@ -532,8 +544,10 @@ def uploadCert(candidates, vaultid):
       print("WARNING: Unparseable certificate from host \"%s:%s\" (PTR: %s)" % (host, str(port), name))
       continue
 
-    if verbose: print("Host \"%s:%s\" (PTR: %s) X509 CommonName=\"%s\" " % (host, str(port), name, x509.get_subject().CN), end='')
+    # Host "217.75.106.204:443" (PTR: xpd.se, TLSv1.3: TLS_AES_256_GCM_SHA384) X509 CommonName="xpd.se" (expires in 782 days)
+    if verbose: print("Host \"%s:%s\" (PTR: %s, %s: %s) X509 CommonName=\"%s\" " % (host, str(port), name, tls_version, tls_cipher, x509.get_subject().CN), end='')
     if is_expired(x509):
+      expired += 1
       if not import_expired:
         continue
 
@@ -564,7 +578,7 @@ def uploadCert(candidates, vaultid):
         'keylength':  data["DATA"]["keylength"],
         'keyusage':   data["DATA"]["keyusage"],
         'altnamedns': data["DATA"]["altnamedns"],
-        'info':       'Retrieved from ' + name + ' (IP: ' + host + ', port: ' + str(port) + ') by x509-vacuumer.',
+        'info':       'Retrieved from ' + name + ' (IP: ' + host + ', port: ' + str(port) + ') using ' + tlsinfo + ' by x509-vacuumer.',
         'parentid':   '0',
         'groupid':    vaultid,
         'token':      token
@@ -587,7 +601,7 @@ def uploadCert(candidates, vaultid):
     else:
       duplicates += 1
 
-  return(imported, duplicates)
+  return(imported, duplicates, expired)
 
 def find_duplicates(cn, validto, altnamedns, vaultid):
   duplicate = False
@@ -600,15 +614,16 @@ def find_duplicates(cn, validto, altnamedns, vaultid):
   if not r.ok:
     return(False)
 
-  if (len(data["OBJECT"])): # Unless result is empty
-    for v in list(data["OBJECT"].items()):
-      if vaultid == data["OBJECT"][v[0]]["groupid"]:
-        if not data["OBJECT"][v[0]]["public"].get("cn"):
+  if (len(data["OBJECTS"])): # Unless result is empty
+    for object in data["OBJECTS"]:
+      objectid = object['id']
+      if vaultid == object["groupid"]:
+        if not object["public"].get("cn"):
           continue
-        if cn == data["OBJECT"][v[0]]["public"]["cn"]:
-          if validto == data["OBJECT"][v[0]]["public"]["validto"]:
-            if altnamedns == data["OBJECT"][v[0]]["public"]["altnamedns"]:
-              if verbose: print("Found existing certificate as Object-ID \"%s\" in Vault-ID \"%s\"" % (v[0], vaultid))
+        if cn == object["public"]["cn"]:
+          if validto == object["public"]["validto"]:
+            if altnamedns == object["public"]["altnamedns"]:
+              if verbose: print("Found existing certificate as Object-ID \"%s\" in Vault-ID \"%s\"" % (objectid, vaultid))
               duplicate = True
   else:
     if debug: print("Duplicate search returned no candidates.")
@@ -627,7 +642,7 @@ def is_expired(x509):
   expire_date = parse_expire_date(x509)
   delta = expire_date - cur_date()
   if delta.days < 0:
-    print("- expired certificate %s (%d days ago)" % (expire_date, (delta.days * -1)))
+    if verbose: print("expired certificate %s (%d days ago)" % (expire_date, (delta.days * -1)))
     return True
   else:
     if verbose: print("(expires in %d days)" % (delta.days))
