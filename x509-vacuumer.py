@@ -13,8 +13,8 @@ import socket
 import getpass
 import os.path
 import re
-import requests
 import ssl
+import requests
 import OpenSSL
 from requests_toolbelt.multipart.encoder import MultipartEncoder
 from netaddr import *
@@ -55,12 +55,12 @@ def main():
     rc_file = os.path.expanduser('~/.storedsafe-client.rc')
 
   try:
-   opts, args = getopt.getopt(sys.argv[1:], "vdc:p:s:u:a:t:h:",\
+   opts, _ = getopt.getopt(sys.argv[1:], "vdc:p:s:u:a:t:h:",\
     [ "verbose", "debug", "cidr=", "port=", "storedsafe=", "token=", "user=", "apikey=", \
     "vault=", "vaultid=", "vault-id=", "host=", "rc=", "timeout=", "import-expired", "create-vault",\
     "allow-duplicates", "list-vaults", "basic-auth-user=", "policy=", "description=",\
     "help" ])
- 
+
   except getopt.GetoptError as err:
     print("%s" % str(err))
     usage()
@@ -154,7 +154,7 @@ def main():
   if not token:
     if user and apikey:
       password = passphrase(user)
-      otp = OTP(user)
+      otp = OTP()
       token = login(user, password, apikey, otp)
     else:
       print("You need to supply valid credentials. (--user, --apikey or --token or --rc).")
@@ -236,46 +236,46 @@ def usage():
   print("$ %s --rc ~/.storedsafe.rc --cidr 2001:db8:c016::202 --host www1.domain.cc --host www2.host.cc --vault \"Public Web Servers\"" % sys.argv[0])
 
 def readrc(rc_file):
-  token = server = False
+  tok = srv = False
   if os.path.isfile(rc_file):
     f = open(rc_file, 'r')
     for line in f:
       if "token" in line:
-        token = re.sub('token:([a-zA-Z0-9]+)\n$', r'\1', line)
-        if token == 'none': token = False
+        tok = re.sub('token:([a-zA-Z0-9]+)\n$', r'\1', line)
+        if tok == 'none': tok = False
       if "mysite" in line:
-        server = re.sub('mysite:([a-zA-Z0-9.]+)\n$', r'\1', line)
-        if server == 'none': server = False
+        srv = re.sub('mysite:([a-zA-Z0-9.]+)\n$', r'\1', line)
+        if srv == 'none': srv = False
     f.close()
-    if not token: print("INFO: Could not find a valid token in \"%s\", skipping it." % rc_file)
-    if not server: print("INFO: Could not find a valid server in \"%s\", skipping it." % rc_file)
-    return (server, token)
+    if not tok: print("INFO: Could not find a valid token in \"%s\", skipping it." % rc_file)
+    if not srv: print("INFO: Could not find a valid server in \"%s\", skipping it." % rc_file)
+    return (srv, tok)
   else:
     print("ERROR: Can not open \"%s\"." % rc_file)
 
-  return (server, token)
+  return (srv, tok)
 
 def passphrase(user):
   p = getpass.getpass('Enter ' + user + '\'s passphrase: ')
   return(p)
 
-def OTP(user):
-  otp = eval(input('Enter OTP (Yubikey or TOTP): '))
+def OTP():
+  otp = input('Enter OTP (Yubikey or TOTP): ')
   return(otp)
 
 def login(user, password, apikey, otp):
   if len(otp) > 8:
     payload = {
-      'username': user,
-      'keys': "{}{}{}".format(password, apikey, otp)
+        'username': user,
+        'keys': "{}{}{}".format(password, apikey, otp)
     }
   else:
     payload = {
-      'username': user,
-      'passphrase': password,
-      'otp': otp,
-      'apikey': apikey,
-      'logintype': 'totp'
+        'username': user,
+        'passphrase': password,
+        'otp': otp,
+        'apikey': apikey,
+        'logintype': 'totp'
     }
 
   try:
@@ -328,12 +328,12 @@ def findVaultID(vaultname):
   except:
     print("ERROR: No connection to \"%s\"" % url)
     sys.exit()
-  data = json.loads(r.content)
   if not r.ok:
     print("ERROR: Can not find any vaults.")
     sys.exit()
 
-  if (len(data["VAULTS"])): # Unless result is empty
+  data = json.loads(r.content)
+  if (len(data["VAULTS"]) > 0): # Unless result is empty
     for vault in data["VAULTS"]:
       if vaultname == vault["groupname"]:
         vaultid = vault["id"]
@@ -362,7 +362,7 @@ def findVaultName(vaultid):
   except:
     print("ERROR: No connection to \"%s\"" % url)
     sys.exit()
-  data = json.loads(r.content)
+
   if not r.ok:
     if create_vault:
       if debug: print("DEBUG: Can not find Vault-ID \"%s\", will try to create a new vault." % vaultid)
@@ -373,6 +373,7 @@ def findVaultName(vaultid):
       print("ERROR: Can not find Vault-ID \"%s\" and \"--create-vault\" not specified." % vaultid)
       sys.exit()
 
+  data = json.loads(r.content)
   if data["CALLINFO"]["status"] == "SUCCESS":
     vaultname = data["VAULT"][0]["groupname"]
     if debug: print("Found Vault \"%s\" via Vault-ID \"%s\"" % (vaultname, vaultid))
@@ -400,11 +401,12 @@ def createVault(vaultname):
   # There's gotta be better way..
   # data['VAULT']: {'179': {'id': '179', 'groupname': 'Firewalls in ZA', 'poli
   try:
-    v = list(data['VAULT'])
-    vaultid = data['VAULT'][0]['id']
-    if verbose: print("Created new Vault \"" + vaultname + "\" with Vault-ID \"" + vaultid + "\"")
+    if (len(data["VAULTS"]) > 0): # Unless result is empty
+      vaultid = data['VAULT'][0]['id']
+      if verbose: print("Created new Vault \"" + vaultname + "\" with Vault-ID \"" + vaultid + "\"")
   except:
-    pass
+    print("ERROR: Failed to create vault \"" + vaultname + "\"")
+    sys.exit()
   return(vaultid)
 
 def listVaults():
@@ -424,7 +426,7 @@ def listVaults():
     sys.exit()
 
   data = json.loads(r.content)
-  if (len(data["VAULTS"])): # Unless result is empty
+  if (len(data["VAULTS"]) > 0): # Unless result is empty
     for vault in data["VAULTS"]:
       vaultname = vault["groupname"]
       vaultid = vault["id"]
@@ -432,8 +434,6 @@ def listVaults():
       print("Vault \"%s\" (Vault-ID \"%s\") with \"%s\" permissions." % (vaultname, vaultid, permission))
   else:
     print("You don't have access to any vaults. Bohoo.")
-
-  return
 
 def addHosts(cidr, hosts):
   for host in hosts:
@@ -482,16 +482,16 @@ def scan(cidr, tcp_port):
           if ip.version == 6:
             s = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
           else:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)            
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
           s.settimeout(timeout)
           result = s.connect_ex((str(ip), int(port)))
           s.close()
-          if result == 0: 
+          if result == 0:
             candidates.append(str(ip) + ';' + str(port))
             if verbose: sys.stdout.write('!')
           else:
             if verbose: sys.stdout.write('.')
-          if verbose: sys.stdout.flush()           
+          if verbose: sys.stdout.flush()
         except:
           if verbose: print("\nWARNING: Could not connect to \"%s:%s\"" % (ip, str(port)))
 
@@ -553,10 +553,10 @@ def uploadCert(candidates, vaultid):
 
     multipart_data = MultipartEncoder(fields={
         'file': (x509.get_subject().CN + '.crt', certinfo, 'application/x-x509-ca-cert'),
-        'file1': x509.get_subject().CN + '.crt', 
+        'file1': x509.get_subject().CN + '.crt',
         'token': token
-      }
-    )
+        })
+
     if basic_auth_user:
       r = requests.post(url + '/filecollect', data=multipart_data, headers={'Content-Type': multipart_data.content_type}, auth=(basic_auth_user, basic_auth_pw))
     else:
@@ -582,8 +582,7 @@ def uploadCert(candidates, vaultid):
         'parentid':   '0',
         'groupid':    vaultid,
         'token':      token
-      }
-    )
+        })
 
     if not allow_duplicates:
       exists = find_duplicates(data["DATA"]["cn"], data["DATA"]["validto"], data["DATA"]["altnamedns"], vaultid)
@@ -610,19 +609,19 @@ def find_duplicates(cn, validto, altnamedns, vaultid):
     r = requests.get(url + '/vault/' + vaultid, params=payload, auth=(basic_auth_user, basic_auth_pw))
   else:
     r = requests.get(url + '/vault/' + vaultid, params=payload)
-  data = json.loads(r.content)
   if not r.ok:
     return(False)
 
-  if (len(data["OBJECTS"])): # Unless result is empty
-    for object in data["OBJECTS"]:
-      objectid = object['id']
-      if vaultid == object["groupid"]:
-        if not object["public"].get("cn"):
+  data = json.loads(r.content)
+  if (len(data["OBJECTS"]) > 0): # Unless result is empty
+    for obj in data["OBJECTS"]:
+      objectid = obj['id']
+      if vaultid == obj["groupid"]:
+        if not obj["public"].get("cn"):
           continue
-        if cn == object["public"]["cn"]:
-          if validto == object["public"]["validto"]:
-            if altnamedns == object["public"]["altnamedns"]:
+        if cn == obj["public"]["cn"]:
+          if validto == obj["public"]["validto"]:
+            if altnamedns == obj["public"]["altnamedns"]:
               if verbose: print("Found existing certificate as Object-ID \"%s\" in Vault-ID \"%s\"" % (objectid, vaultid))
               duplicate = True
   else:

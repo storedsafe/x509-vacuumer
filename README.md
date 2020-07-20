@@ -6,15 +6,13 @@ x509-vacuumer.py will parse the certificate and store relevant meta information 
 
 StoredSafe's PubSub system will receive a subscription on an alert 30 days prior to the expiration date of each stored certificate.
 
-The script is written in Python v3 and has been tested on macOS Mojave and on Linux (any fairly recent version of Ubuntu or Red Hat should work fine).
+The script is written in Python v3 and has been tested on macOS Catalina (10.15.5) and on Linux (any fairly recent version of Ubuntu or Red Hat should work fine).
 
 Support for previous versions of StoredSafe (pre v2.1.0) can be found in the legacy branch.
 
 ## Installation instructions
 
-This script requires Python v3 and some libraries.
-
-It has been developed and tested using Python v3.7.7, on macOS Catalina 10.15.3.
+This script requires Python v3 and some libraries. It has been developed and tested using Python v3.7.7, on macOS Catalina 10.15.5.
 
 Most of the required libraries are installed by default, but others might require manual installation. (requests, requests_toolbelt, netaddr)
 
