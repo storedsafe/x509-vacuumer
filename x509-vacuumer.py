@@ -151,6 +151,12 @@ def main():
   if supplied_server:
     storedsafe = supplied_server
 
+  if storedsafe:
+    url = "https://" + storedsafe + "/api/1.0"
+  else:
+    print('You need to specify a server (--storedsafe) to connect to.')
+    sys.exit()
+
   if not token:
     if user and apikey:
       password = passphrase(user)
@@ -159,12 +165,6 @@ def main():
     else:
       print("You need to supply valid credentials. (--user, --apikey or --token or --rc).")
       sys.exit()
-
-  if storedsafe:
-    url = "https://" + storedsafe + "/api/1.0"
-  else:
-    print('You need to specify a server (--storedsafe) to connect to.')
-    sys.exit()
 
   if not authCheck():
     sys.exit()
@@ -398,10 +398,8 @@ def createVault(vaultname):
     sys.exit()
 
   data = json.loads(r.content)
-  # There's gotta be better way..
-  # data['VAULT']: {'179': {'id': '179', 'groupname': 'Firewalls in ZA', 'poli
   try:
-    if (len(data["VAULTS"]) > 0): # Unless result is empty
+    if (len(data["VAULT"]) > 0): # Unless result is empty
       vaultid = data['VAULT'][0]['id']
       if verbose: print("Created new Vault \"" + vaultname + "\" with Vault-ID \"" + vaultid + "\"")
   except:
